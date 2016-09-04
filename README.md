@@ -12,4 +12,4 @@ predictive biomarker; a predictive biomarker is one which potentially provides i
 guide treatment decisions. We go on to analysis the simulated trial using frequentist and Bayesian approaches.
 
 
-need to check and make clear if it is the map ot map2stan function that I am using
+need to check and make clear if it is the map or map2stan function that I am using

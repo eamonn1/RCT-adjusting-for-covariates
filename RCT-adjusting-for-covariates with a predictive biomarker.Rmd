@@ -40,7 +40,7 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
  
         where<-"home" #this is used in the sourced program 
  
-        path <- "GIT\\RCT-adjusting-for-covaritates"  #typo     
+        path <- "GIT\\RCT-adjusting-for-covariates"     
         
         work<-    paste("X:/", path, sep = "")
         nonwork<- paste("~/", path, sep = "")
@@ -367,11 +367,16 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
 
 #  Bayesian analysis using STAN, the model statement
 
-```{r echo=TRUE, eval=TRUE, tidy=FALSE, results='markup' }     
+```{r echo=TRUE, eval=TRUE, tidy=FALSE, results='hide' }     
          
           d$sex2 <- as.numeric(ifelse(d$sex=="M", 1,0)  )  
  
-          m1 <- map( alist( Y ~ dnorm(mu, sigma), 
+          # was initially using map and not map2stan
+          # seems to be important that enough iterations are run 
+          # otherwise there is an error and only default 1000
+          # simulations are generated and the rest NAs
+
+          m1 <- map2stan( alist( Y ~ dnorm(mu, sigma), 
                          
                            mu <- b0 + b1*baseline + b2*sex2 + b3*age +
                            b4*biomarker + b5*treat + b6*biomarker*treat, 
@@ -379,7 +384,8 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
                            b0 ~ dnorm(0, 100), 
                            c(b1, b2, b3, b4, b5, b6) ~ dnorm(0, 10), 
                            sigma ~ dunif(0, 10) ), 
-                    data=d )
+                    data=d, 
+                    chains=3, iter=5000 , warmup=1000 )  
         
           
 ```
@@ -390,7 +396,7 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
           
        f
        precis(m1)
-      
+       simulations <- 1e4 # 10000
       
 ```
 
@@ -419,12 +425,12 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
       )
 
       # compute counterfactual mean response (mu1)
-      mu1 <- link( m1 , data=pred.data1 )  # default 1000 
+      mu1 <- link( m1 , data=pred.data1 , n=simulations)  # default is 1000 
       mu.mean <- apply( mu1 , 2 , mean )
       mu.PI <- apply( mu1 , 2 , PI )
-
+ 
       # simulate counterfactual response outcomes
-      R.sim1 <- sim( m1 , data=pred.data1 , n=1e4 )
+      R.sim1 <- sim( m1 , data=pred.data1 , n=simulations )  
       R.PI <- apply( R.sim1 , 2 , PI )
 
       # display predictions, hiding raw data with type="n"  
@@ -445,12 +451,12 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
       )
 
       # compute counterfactual mean response (mu2)
-      mu2 <- link( m1 , data=pred.data2 )
+      mu2 <- link( m1 , data=pred.data2 , n =simulations)
       mu.mean <- apply( mu2 , 2 , mean )
       mu.PI <- apply( mu2 , 2, PI )
   
       # simulate counterfactual response outcomes
-      R.sim2 <- sim( m1 , data=pred.data2 , n=1e4 )
+      R.sim2 <- sim( m1 , data=pred.data2 , n=simulations )
       R.PI <- apply( R.sim2 , 2 , PI )
 
       # display predictions, hiding raw data with type="n"
@@ -469,7 +475,10 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
       
 ```
 
+\clearpage
+
 #  Plot the predicted teatment effects, showing treatment effect modification with biomarker. Counterfactual samples of patients are simulated and plotted. `r paste("Adjusted to baseline ", p4(P.baseline),", age ", P.age," and sex coded ", P.sex, " female", sep="")`
+
 
 ```{r echo=TRUE, fig.cap="Predicted effects (Statistical Rethinking page 129)"   }
 
@@ -485,7 +494,7 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
         lines( P.biomarker , mu.mean )
         shade( mu.PI , P.biomarker , col= col.alpha("blue", 0.15))
         shade( R.PI ,  P.biomarker ,  col= col.alpha("purple", 0.15))
-        x <- sample(1:1000,1)
+        x <- sample(1:simulations,1)      # choose one simulated dataset to plot
         points(r.diff[x,] ~ P.biomarker)
         abline(h=0)
       
@@ -494,10 +503,10 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
 
 #  Model comparison with main effects model m2. The interaction model's (m1) weight means there is probability of 0.81 that the model will make the best predictions on new data, conditional on the set of models considered.
 
-```{r echo=FALSE, results='markup'}
+```{r echo=TRUE, results='hide'}
 
  
-      m2 <- map( alist( Y ~ dnorm(mu, sigma), 
+      m2 <- map2stan( alist( Y ~ dnorm(mu, sigma), 
                   
                   mu <- b0 + b1*baseline + b2*sex2 + b3*age +
                     b4*biomarker + b5*treat , 
@@ -505,8 +514,11 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
                   b0 ~ dnorm(0, 100), 
                   c(b1, b2, b3, b4, b5) ~ dnorm(0, 10), 
                   sigma ~ dunif(0, 10) ), 
-           data=d )
+          data=d, 
+                    chains=3, iter=5000 , warmup=1000 )  
+```
 
+```{r echo=FALSE, results='markup'}
 
     biomarker.models <- compare(m1, m2)
     print(biomarker.models )
@@ -519,11 +531,12 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
 ```{r echo=TRUE, fig.cap="Check chains are mixing" }  
 
     pairs(m1)
-    post <-extract.samples(m1)
-    par(mfrow=c(2,4))
-    for ( i in 1:8 )  { plot(post[,i] , type='l', main=names(post)[i]) }
-    par(mfrow=c(1,1))
+    post <- extract.samples(m1)
+   # par(mfrow=c(2,4))
+  #  for ( i in 1:8 )  { plot(post[i] , type='l', main=names(post)[i]) } #post[,i]
+  #  par(mfrow=c(1,1))
       
+    plot(m1)
       
 ```
 
@@ -550,18 +563,18 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
           )
           
           # compute counterfactual mean response (mu1)
-          mu1 <- link( m1 , data=pred.data1 )   
+          mu1 <- link( m1 , data=pred.data1  , n=simulations )   
           mu.mean <- apply( mu1 , 2 , mean )
           mu.PI <- apply( mu1 , 2 , PI )
           
           # simulate counterfactual response outcomes
-          R.sim1 <- sim( m1 , data=pred.data1 , n=1e4 )
+          R.sim1 <- sim( m1 , data=pred.data1 , n=simulations )
           R.PI <- apply( R.sim1 , 2 , PI )
           
           # display predictions, hiding raw data with type="n"  
           plot( Y ~ x , data=d , type="n", xlab=paste(namez), ylab="Response" )
           mtext(paste(
-            "Adjusted to treatment",P.treat,"; biomarker",P.biomarker,"; Sex",P.sex,
+            "Adjusted to treatment",P.treat,"; biomarker", P.biomarker,"; Sex",P.sex,"; Baseline",p4(P.baseline),
             sep=" "))
           lines( x , mu.mean )
           shade( mu.PI , x , col= col.alpha("blue", 0.15))
@@ -571,7 +584,7 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
 
 
 
-
+# baseline
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       P.biomarker <- median(d$biomarker)                   # Hold
       P.baseline <- seq( from=-1, to=2.5, length.out=150 ) # Assess
@@ -591,12 +604,12 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
       )
       
       # compute counterfactual mean response (mu1)
-      mu1 <- link( m1 , data=pred.data1 )   
+      mu1 <- link( m1 , data=pred.data1 , n=simulations)   
       mu.mean <- apply( mu1 , 2 , mean )
       mu.PI <- apply( mu1 , 2 , PI )
       
       # simulate counterfactual response outcomes
-      R.sim1 <- sim( m1 , data=pred.data1 , n=1e4 )
+      R.sim1 <- sim( m1 , data=pred.data1 , n=simulations )
       R.PI <- apply( R.sim1 , 2 , PI )
       
       # display predictions, hiding raw data with type="n"  
@@ -610,7 +623,7 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
       points(R.sim1[1,] ~ x)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-      #FACTOR
+      #sex
       #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       par(mfrow=c(1,2))
       P.biomarker <- median(d$biomarker)                   # Hold
@@ -624,19 +637,19 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
       
       pred.data1 <- data.frame(                          # Make predictions for this dataset
         biomarker=P.biomarker,
-        baseline=x,
-        sex2=P.sex,
+        baseline=P.baseline,
+        sex2=x,
         age=P.age,
         treat=P.treat                                     
       )
       
       # compute counterfactual mean response (mu1)
-      mu1 <- link( m1 , data=pred.data1 )   
+      mu1 <- link( m1 , data=pred.data1 , n=simulations ) 
       mu.mean <- apply( mu1 , 2 , mean )
       mu.PI <- apply( mu1 , 2 , PI )
       
       # simulate counterfactual response outcomes
-      R.sim1 <- sim( m1 , data=pred.data1 , n=1e4 )
+      R.sim1 <- sim( m1 , data=pred.data1 , n=simulations )
       R.PI <- apply( R.sim1 , 2 , PI )
       
      
@@ -652,8 +665,8 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
       points(R.sim1[1,] ~ jitter(x))
       #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       P.biomarker <- median(d$biomarker)                   # Hold
-      P.baseline <- median(d$baseline)  
-      P.sex <- c(rep(0,75) , rep(1, 75))                                    # Hold sex at FEMALE
+      P.baseline <- median(d$baseline)                     # Hold at median
+      P.sex <- c(rep(0,75) , rep(1, 75))                   # Hold sex at FEMALE
       P.age <- median(d$age)                               # Hold age at median 
       P.treat=1                                            # Hold
       
@@ -662,19 +675,19 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
       
       pred.data1 <- data.frame(                          # Make predictions for this dataset
         biomarker=P.biomarker,
-        baseline=x,
-        sex2=P.sex,
+        baseline=P.baseline,
+        sex2=x,
         age=P.age,
         treat=P.treat                                     
       )
       
       # compute counterfactual mean response (mu1)
-      mu1 <- link( m1 , data=pred.data1 )   
+      mu1 <- link( m1 , data=pred.data1, n=simulations )   
       mu.mean <- apply( mu1 , 2 , mean )
       mu.PI <- apply( mu1 , 2 , PI )
       
       # simulate counterfactual response outcomes
-      R.sim1 <- sim( m1 , data=pred.data1 , n=1e4 )
+      R.sim1 <- sim( m1 , data=pred.data1 , n=simulations )
       R.PI <- apply( R.sim1 , 2 , PI )
       
       
@@ -699,6 +712,7 @@ Here, we perform an investigation of adjusted and unadjusted power in the settin
 
   Statistical Rethinking, Richard McElearth post treatment bias p151, WAIC p199 and simulate p129  
   http://thestatsgeek.com/2014/02/01/adjusting-for-baseline-covariates-in-randomized-controlled-trials/  
+  
   http://egap.org/content/power-analysis-simulations-r  
   
   http://stackoverflow.com/questions/14554558/simulate-a-linear-model-100-times  
